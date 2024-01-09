@@ -1,0 +1,7 @@
+[package]
+name = "mastodon-report-watcher"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mubelotix <mubelotix@gmail.com>"]
+
+[dependencies]
