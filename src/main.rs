@@ -4,10 +4,35 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
+struct Account {
+    username: String,
+    domain: Option<String>,
+
+    // With more fields that are not relevant here
+}
+
+impl Account {
+    fn format_username(&self) -> String {
+        match &self.domain {
+            Some(domain) => format!("@{}@{}", self.username, domain),
+            None => format!("@{}", self.username),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct Report {
     action_taken: bool,
+
+    category: String,
+    comment: String,
+
+    account: Account,
+    target_account: Account,
+
     #[serde(with = "time::serde::iso8601")]
     created_at: OffsetDateTime,
+
     //  With more fields that are not relevant here
 }
 
@@ -30,7 +55,7 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-fn should_shutdown(token: &str) -> Result<bool, Error> {
+fn should_shutdown(token: &str) -> Result<(bool, Option<Report>), Error> {
     let response = get("https://mastodon.insa.lol/api/v1/admin/reports")
         .with_header("Authorization", format!("Bearer {}", token))
         .send()?;
@@ -48,37 +73,75 @@ fn should_shutdown(token: &str) -> Result<bool, Error> {
     reports.retain(|report| !report.action_taken);
 
     let now = OffsetDateTime::now_utc();
-    for report in reports.iter_mut() {
+    for report in reports {
         let duration = now - report.created_at;
         if duration.whole_hours() > 23 {
-            return Ok(true);
+            return Ok((true, Some(report)));
         }
     }
 
-    Ok(false)
+    Ok((false, None))
 }
 
-fn shutdown() {
+fn send_webhook(webhook_url: &str, content: &str, title: &str, comment: &str, author: &str, target: &str) {
+    let value = format!(r#"{{
+        "content": "{content}",
+        "embeds": [{{
+            "title": "{title}",
+            "description": "{comment}",
+            "color": 16711680,
+            "fields": [
+                {{
+                    "name": "auteur",
+                    "value": "{author}",
+                    "inline": true
+                }},
+                {{
+                    "name": "target",
+                    "value": "{target}",
+                    "inline": true
+                }}
+            ]
+        }}],
+        "attachments": []
+    }}"#);
+    
+    let resp = minreq::post(webhook_url)
+        .with_header("Content-Type", "application/json")
+        .with_body(value)
+        .send()
+        .expect("Failed to send webhook");
+    if resp.status_code != 204 {
+        println!("Failed to send webhook: {}", resp.status_code);
+    }
+}
+
+const SHUTDOWN_MSG: &str = "🚨 Report wasn't processed in due time. Server shutting down to prevent legal issues. <@480708256029736960>";
+
+fn shutdown(webhook_url: &str, report: Report) {
     println!("Shutting down");
+    send_webhook(webhook_url, SHUTDOWN_MSG, &report.category, &report.comment, &report.account.format_username(), &report.target_account.format_username());
 }
 
 fn main() {
     let token = env::var("MASTODON_TOKEN").expect("Expected a token in the environment");
+    let webhook_url = env::var("WEBHOOK_URL").expect("Expected a webhook url in the environment");
 
     let mut retries = 0;
     loop {
         match should_shutdown(&token) {
-            Ok(should_shutdown) => {
+            Ok((should_shutdown, report)) => {
                 retries = 0;
-                if should_shutdown {
-                    shutdown();
+                if let Some(report) = report {
+                    if should_shutdown {
+                        shutdown(&webhook_url, report);
+                    }
                 }
             },
             Err(e) => {
                 println!("Error: {e:?}");
                 if retries > 10 {
                     println!("Too many retries.");
-                    shutdown()
                 }
                 sleep(Duration::from_secs(10));
                 retries += 1;
