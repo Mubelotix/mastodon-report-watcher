@@ -128,21 +128,10 @@ fn shutdown(webhook_url: &str, service: &str, report: Report) {
         .expect("Failed to shutdown");
 }
 
-fn force_follow(users: &[String]) {
-    for user in users {
-        Command::new("sh")
-            .arg("-c")
-            .arg(dbg!(format!("sudo /usr/bin/docker exec mastodon_web_1 /bin/bash -c 'RAILS_ENV=production bin/tootctl accounts follow {user}'")))
-            .output()
-            .expect("Failed to follow");
-    }
-}
-
 fn main() {
     let token = env::var("MASTODON_TOKEN").expect("Expected a token in the environment");
     let webhook_url = env::var("WEBHOOK_URL").expect("Expected a webhook url in the environment");
     let service = env::var("MASTODON_SERVICE").ok().unwrap_or_else(|| String::from("mastodon"));
-    let users_to_follow: Vec<String> = env::var("USERS_TO_FOLLOW").ok().map(|s| s.split(',').map(|s| s.to_owned()).collect()).unwrap_or_default();
 
     let mut retries = 0;
     loop {
@@ -165,7 +154,6 @@ fn main() {
             }
         }
 
-        force_follow(&users_to_follow);
         sleep(Duration::from_secs(60*30));
     }
 }
