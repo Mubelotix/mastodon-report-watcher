@@ -1,4 +1,4 @@
-use std::{env, thread::sleep, time::Duration};
+use std::{env, process::Command, thread::sleep, time::Duration};
 use minreq::get;
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -118,14 +118,20 @@ fn send_webhook(webhook_url: &str, content: &str, title: &str, comment: &str, au
 
 const SHUTDOWN_MSG: &str = "🚨 Report wasn't processed in due time. Server shutting down to prevent legal issues. <@480708256029736960>";
 
-fn shutdown(webhook_url: &str, report: Report) {
+fn shutdown(webhook_url: &str, service: &str, report: Report) {
     println!("Shutting down");
     send_webhook(webhook_url, SHUTDOWN_MSG, &report.category, &report.comment, &report.account.format_username(), &report.target_account.format_username());
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("sudo systemctl stop {service}"))
+        .output()
+        .expect("Failed to shutdown");
 }
 
 fn main() {
     let token = env::var("MASTODON_TOKEN").expect("Expected a token in the environment");
     let webhook_url = env::var("WEBHOOK_URL").expect("Expected a webhook url in the environment");
+    let service = env::var("MASTODON_SERVICE").ok().unwrap_or_else(|| String::from("mastodon"));
 
     let mut retries = 0;
     loop {
@@ -134,7 +140,7 @@ fn main() {
                 retries = 0;
                 if let Some(report) = report {
                     if should_shutdown {
-                        shutdown(&webhook_url, report);
+                        shutdown(&webhook_url, &service, report);
                     }
                 }
             },
