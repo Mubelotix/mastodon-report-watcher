@@ -132,7 +132,7 @@ fn force_follow(users: &[String]) {
     for user in users {
         Command::new("sh")
             .arg("-c")
-            .arg(format!("sudo /usr/bin/docker exec mastodon_web_1 /bin/bash -c 'RAILS_ENV=production bin/tootctl accounts follow {user}'"))
+            .arg(dbg!(format!("sudo /usr/bin/docker exec mastodon_web_1 /bin/bash -c 'RAILS_ENV=production bin/tootctl accounts follow {user}'")))
             .output()
             .expect("Failed to follow");
     }
